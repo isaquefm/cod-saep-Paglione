@@ -7,11 +7,16 @@ function getPool() {
     if (!process.env.DATABASE_URL) {
         throw new Error('DATABASE_URL não está configurada.');
     }
+    const connection = new URL(process.env.DATABASE_URL);
+    connection.searchParams.set('sslmode', 'verify-full');
+    connection.searchParams.set('sslnegotiation', 'direct');
+    connection.searchParams.delete('channel_binding');
     pool ||= new Pool({
-        connectionString: process.env.DATABASE_URL,
+        connectionString: connection.toString(),
+        enableChannelBinding: true,
         max: 1,
         idleTimeoutMillis: 10000,
-        connectionTimeoutMillis: 10000
+        connectionTimeoutMillis: 15000
     });
     return pool;
 }

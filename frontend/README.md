@@ -4,7 +4,7 @@ O painel e a API de estoque rodam no mesmo projeto Next.js. A API acessa o Postg
 
 ## Executar localmente
 
-1. Na raiz, copie `.env.example` para `.env` e informe `DATABASE_URL` do Neon.
+1. Crie um único arquivo `.env` na raiz do repositório e informe `DATABASE_URL` do Neon.
 2. Instale as dependências com `npm install` e `npm install --prefix frontend`.
 3. Inicie com `npm run dev` na raiz.
 4. Abra [http://localhost:3000](http://localhost:3000).
@@ -13,7 +13,7 @@ Na primeira chamada à API, o sistema cria `produtos` e `movimentacoes` caso nã
 
 ## Publicar na Vercel
 
-Configure `frontend` como Root Directory. Adicione `DATABASE_URL` às variáveis de ambiente do projeto Vercel e faça um novo deploy. O `.env` local não é enviado à Vercel; use a mesma URL como variável privada no painel da Vercel.
+Configure `frontend` como Root Directory. Adicione `DATABASE_URL` às variáveis de ambiente do projeto Vercel e faça um novo deploy. O `.env` local não é enviado à Vercel; cadastre a URL como variável privada no painel da Vercel.
 
 Não publique credenciais no repositório. O arquivo `.env` já está ignorado pelo Git.
 

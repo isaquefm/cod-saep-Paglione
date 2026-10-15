@@ -6,7 +6,16 @@ if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL não foi definida no ambiente. Configure a conexão PostgreSQL antes de iniciar a API.');
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connection = new URL(process.env.DATABASE_URL);
+connection.searchParams.set('sslmode', 'verify-full');
+connection.searchParams.set('sslnegotiation', 'direct');
+connection.searchParams.delete('channel_binding');
+
+const pool = new Pool({
+    connectionString: connection.toString(),
+    enableChannelBinding: true,
+    connectionTimeoutMillis: 15000
+});
 
 pool.on('connect', () => console.log('Conexão com o PostgreSQL estabelecida'));
 pool.on('error', (error) => console.error('Erro na conexão com o PostgreSQL:', error.message));

@@ -39,18 +39,72 @@ function Icon({ name, size = 19 }) {
   return <svg {...attrs}>{paths[name] || paths.grid}</svg>;
 }
 
-async function apiRequest(path, options = {}) {
-  const response = await fetch(`/api/stock?path=${encodeURIComponent(path)}`, {
+async function apiRequest(path, options = {}, csrfToken = '') {
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers };
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers['X-CSRF-Token'] = csrfToken;
+  const response = await fetch('/api/stock?path=' + encodeURIComponent(path), {
     cache: 'no-store',
     ...options,
-    headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }
+    method,
+    credentials: 'same-origin',
+    headers
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
-  if (!response.ok) throw new Error(data?.error || 'Não foi possível concluir a solicitação.');
+  if (!response.ok) {
+    const error = new Error(data?.error || 'Não foi possível concluir a solicitação.');
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
+function LoginScreen({ onAuthenticated, message }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || 'Não foi possível iniciar a sessão.');
+      setPassword('');
+      onAuthenticated(result.csrfToken);
+    } catch (loginError) {
+      setError(loginError.message || 'Não foi possível iniciar a sessão.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-card" aria-labelledby="login-title">
+        <div className="brand-mark auth-mark"><Icon name="box" size={22} /></div>
+        <span className="eyebrow">GESTÃO DE ESTOQUE</span>
+        <h1 id="login-title">Acesso administrativo</h1>
+        <p>Entre com as credenciais administrativas para acessar o estoque.</p>
+        {(message || error) && <div className="notice notice-error" role="alert">{error || message}</div>}
+        <form className="form-grid" onSubmit={submit}>
+          <label>Usuário<input required autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+          <label>Senha<input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          <button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Entrando...' : 'Entrar'}</button>
+        </form>
+      </section>
+    </main>
+  );
+}
 function ProductDialog({ product, onClose, onSave, saving, error }) {
   const [form, setForm] = useState(product || emptyProduct);
   useEffect(() => setForm(product || emptyProduct), [product]);
@@ -139,6 +193,9 @@ function Overview({ products, categories, onNavigate, onEdit, onDelete, category
 export default function Home() {
   const [activeView, setActiveView] = useState('overview');
   const [theme, setTheme] = useState('light');
+  const [authStatus, setAuthStatus] = useState('checking');
+  const [csrfToken, setCsrfToken] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -163,8 +220,25 @@ export default function Home() {
   const [reportError, setReportError] = useState('');
 
   useEffect(() => {
+    let active = true;
     const savedTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
     setTheme(savedTheme);
+    fetch('/api/auth/session', { cache: 'no-store', credentials: 'same-origin' })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Não foi possível validar a sessão.');
+        if (!active) return;
+        if (data.authenticated) {
+          setCsrfToken(data.csrfToken);
+          setAuthStatus('authenticated');
+        } else setAuthStatus('anonymous');
+      })
+      .catch((sessionError) => {
+        if (!active) return;
+        setAuthMessage(sessionError.message || 'Não foi possível validar a sessão.');
+        setAuthStatus('anonymous');
+      });
+    return () => { active = false; };
   }, []);
 
   function selectTheme(nextTheme) {
@@ -177,11 +251,24 @@ export default function Home() {
     }
   }
 
+  const stockRequest = useCallback(async (path, options = {}) => {
+    try {
+      return await apiRequest(path, options, csrfToken);
+    } catch (requestError) {
+      if (requestError.status === 401) {
+        setCsrfToken('');
+        setAuthStatus('anonymous');
+        setAuthMessage('Sua sessão expirou. Entre novamente.');
+      }
+      throw requestError;
+    }
+  }, [csrfToken]);
+
   const loadProducts = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await apiRequest('listar');
+      const data = await stockRequest('listar');
       if (!Array.isArray(data)) throw new Error('A resposta da API para produtos está em formato inesperado.');
       setProducts(data);
       setApiOnline(true);
@@ -191,20 +278,22 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [stockRequest]);
 
   const loadCategories = useCallback(async () => {
     setCategoryError('');
     try {
-      const data = await apiRequest('categoria');
+      const data = await stockRequest('categoria');
       if (!Array.isArray(data)) throw new Error('Formato de resposta de categorias inválido.');
       setCategories(data);
     } catch (err) {
       setCategoryError(err.message || 'Não foi possível carregar as categorias.');
     }
-  }, []);
+  }, [stockRequest]);
 
-  useEffect(() => { loadProducts(); loadCategories(); }, [loadProducts, loadCategories]);
+  useEffect(() => {
+    if (authStatus === 'authenticated') { loadProducts(); loadCategories(); }
+  }, [authStatus, loadProducts, loadCategories]);
 
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('pt-BR');
@@ -217,7 +306,7 @@ export default function Home() {
     setFormError('');
     try {
       const isEditing = Boolean(editingProduct);
-      await apiRequest(isEditing ? `atualizar/${encodeURIComponent(editingProduct.id)}` : 'cadastro', {
+      await stockRequest(isEditing ? `atualizar/${encodeURIComponent(editingProduct.id)}` : 'cadastro', {
         method: isEditing ? 'PUT' : 'POST',
         body: JSON.stringify(product)
       });
@@ -237,7 +326,7 @@ export default function Home() {
     if (!window.confirm(`Excluir "${product.nome}" do catálogo?`)) return;
     setNotice('');
     try {
-      await apiRequest(`excluir/${encodeURIComponent(product.id)}`, { method: 'DELETE' });
+      await stockRequest(`excluir/${encodeURIComponent(product.id)}`, { method: 'DELETE' });
       setNoticeError(false);
       setNotice('Produto excluído com sucesso.');
       await Promise.all([loadProducts(), loadCategories()]);
@@ -259,7 +348,7 @@ export default function Home() {
     setMovementError('');
     setMovementMessage('');
     try {
-      await apiRequest('registro', {
+      await stockRequest('registro', {
         method: 'POST',
         body: JSON.stringify({
           id_produto: Number(movement.id_produto),
@@ -285,9 +374,9 @@ export default function Home() {
     try {
       const payload = { dataInicial: period.start, dataFinal: `${period.end} 23:59:59` };
       const [periodData, topExits, thresholdData] = await Promise.all([
-        apiRequest('relatorio-periodo', { method: 'POST', body: JSON.stringify(payload) }),
-        apiRequest('maiores-saidas', { method: 'POST', body: JSON.stringify(payload) }),
-        apiRequest('porcentagem', { method: 'POST', body: JSON.stringify({ limite_minimo: Number(limits.min), limite_maximo: Number(limits.max) }) })
+        stockRequest('relatorio-periodo', { method: 'POST', body: JSON.stringify(payload) }),
+        stockRequest('maiores-saidas', { method: 'POST', body: JSON.stringify(payload) }),
+        stockRequest('porcentagem', { method: 'POST', body: JSON.stringify({ limite_minimo: Number(limits.min), limite_maximo: Number(limits.max) }) })
       ]);
       setReports({ period: periodData, topExits, threshold: thresholdData });
     } catch (err) {
@@ -295,6 +384,26 @@ export default function Home() {
     } finally {
       setReportBusy(false);
     }
+  }
+
+  async function logout() {
+    setAuthMessage('');
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken }
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result?.error || 'Não foi possível encerrar a sessão.');
+      }
+    } catch (logoutError) {
+      setAuthMessage(logoutError.message || 'Não foi possível encerrar a sessão.');
+      return;
+    }
+    setCsrfToken('');
+    setAuthStatus('anonymous');
   }
 
   const selectedView = views.find((view) => view.id === activeView);
@@ -306,6 +415,13 @@ export default function Home() {
     reports: 'Analise movimentações e níveis de estoque.'
   }[activeView];
 
+  if (authStatus === 'checking') {
+    return <main className="auth-shell"><div className="loading-panel" role="status"><span className="spinner" /> Verificando sessão...</div></main>;
+  }
+  if (authStatus === 'anonymous') {
+    return <LoginScreen message={authMessage} onAuthenticated={(token) => { setCsrfToken(token); setAuthMessage(''); setAuthStatus('authenticated'); }} />;
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Menu do sistema">
@@ -316,7 +432,7 @@ export default function Home() {
       </aside>
 
       <section className="main-content">
-        <header className="topbar"><div className="breadcrumb" aria-label={`Localização: Painel, ${selectedView?.label}`}><span className="breadcrumb-root">Painel</span><span aria-hidden="true">/</span><strong>{selectedView?.label}</strong></div><div className="topbar-actions"><div className="theme-switch" role="group" aria-label="Escolha o tema da interface"><button type="button" className="theme-option" aria-label="Tema claro" aria-pressed={theme === 'light'} onClick={() => selectTheme('light')}><Icon name="sun" size={16} /><span>Claro</span></button><button type="button" className="theme-option" aria-label="Tema escuro" aria-pressed={theme === 'dark'} onClick={() => selectTheme('dark')}><Icon name="moon" size={16} /><span>Escuro</span></button></div><div className={`system-status ${apiOnline === false ? 'status-offline' : apiOnline ? 'status-online' : 'status-pending'}`} role="status" aria-live="polite"><i /> <span>{apiOnline === null ? 'Conectando à API' : apiOnline ? 'API disponível' : 'API indisponível'}</span></div></div></header>
+        <header className="topbar"><div className="breadcrumb" aria-label={`Localização: Painel, ${selectedView?.label}`}><span className="breadcrumb-root">Painel</span><span aria-hidden="true">/</span><strong>{selectedView?.label}</strong></div><div className="topbar-actions"><button type="button" className="logout-button" onClick={logout}>Sair</button><div className="theme-switch" role="group" aria-label="Escolha o tema da interface"><button type="button" className="theme-option" aria-label="Tema claro" aria-pressed={theme === 'light'} onClick={() => selectTheme('light')}><Icon name="sun" size={16} /><span>Claro</span></button><button type="button" className="theme-option" aria-label="Tema escuro" aria-pressed={theme === 'dark'} onClick={() => selectTheme('dark')}><Icon name="moon" size={16} /><span>Escuro</span></button></div><div className={`system-status ${apiOnline === false ? 'status-offline' : apiOnline ? 'status-online' : 'status-pending'}`} role="status" aria-live="polite"><i /> <span>{apiOnline === null ? 'Conectando à API' : apiOnline ? 'API disponível' : 'API indisponível'}</span></div></div></header>
         <div className="page-content">
           <div className="page-heading"><div><span className="eyebrow">GESTÃO DE ESTOQUE</span><h1>{title}</h1><p>{subtitle}</p></div>{activeView === 'products' && <button className="button button-primary add-button" onClick={() => openDialog()}><Icon name="plus" size={17} /> Adicionar produto</button>}</div>
           {error && <div className="notice notice-error" role="alert"><span>{error}</span><button className="button button-quiet retry-button" onClick={loadProducts}>Tentar novamente</button></div>}

@@ -554,6 +554,17 @@ tbody tr:hover { background: var(--row-hover); }
 .theme-option:hover { color: var(--green-dark); background: var(--hover-bg); }
 .theme-option[aria-pressed="true"] { color: var(--theme-option-active-text); background: var(--theme-option-active); border-color: var(--theme-option-active-border); font-weight: 650; }
 .topbar-actions { display: flex; min-width: 0; align-items: center; gap: 18px; }
+.logout-button { min-height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink-soft); background: var(--surface); font-weight: 600; }
+.logout-button:hover { color: var(--ink); background: var(--hover-bg); }
+.auth-shell { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: var(--canvas); }
+.auth-card { display: grid; width: min(420px, 100%); gap: 15px; padding: 32px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.auth-mark { margin-bottom: 3px; }
+.auth-card h1 { margin: -7px 0 0; color: var(--ink); font-size: 25px; letter-spacing: -.5px; }
+.auth-card > p { margin: -7px 0 5px; color: var(--muted); line-height: 1.5; }
+.auth-card .notice { margin: 0; }
+.auth-card .button { width: 100%; min-height: 44px; }
+.auth-loading { display: grid; min-height: 100vh; place-items: center; padding: 20px; background: var(--canvas); }
+@media (max-width: 620px) { .auth-card { padding: 24px 20px; } .logout-button { min-height: 36px; padding: 0 9px; } }
 
 html[data-theme="dark"] {
   color-scheme: dark;

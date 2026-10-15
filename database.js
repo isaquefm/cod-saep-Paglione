@@ -41,6 +41,14 @@ async function initialize() {
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS movimentacoes_tempo_idx ON movimentacoes (tempo)');
     await pool.query('CREATE INDEX IF NOT EXISTS movimentacoes_produto_idx ON movimentacoes (id_produto)');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS admin_sessions (
+            session_id VARCHAR(36) PRIMARY KEY,
+            expires_at TIMESTAMPTZ NOT NULL
+        )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS admin_sessions_expiry_idx ON admin_sessions (expires_at)');
+    return pool;
 }
 
 function postgresQuery(client, sql, params, callback) {

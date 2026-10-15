@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "dev": "node dev.js"
+    "dev": "node dev.js",
+    "test": "node --test"
   },
   "dependencies": {
     "dotenv": "^18.0.8",

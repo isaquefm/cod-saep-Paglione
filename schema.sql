@@ -16,3 +16,10 @@ CREATE TABLE IF NOT EXISTS movimentacoes (
 
 CREATE INDEX IF NOT EXISTS movimentacoes_tempo_idx ON movimentacoes (tempo);
 CREATE INDEX IF NOT EXISTS movimentacoes_produto_idx ON movimentacoes (id_produto);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    session_id VARCHAR(36) PRIMARY KEY,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS admin_sessions_expiry_idx ON admin_sessions (expires_at);

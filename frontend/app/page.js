@@ -89,9 +89,9 @@ function AmbientBackground() {
     };
 
     const waveHeight = (x, z, time) => (
-      Math.sin(x * 0.78 + time * 0.34) * Math.cos(z * 0.67 - time * 0.25) * 0.62 +
-      Math.sin((x + z) * 0.49 + time * 0.28) * 0.3 +
-      Math.cos(Math.hypot(x, z) * 0.74 - time * 0.22) * 0.2
+      Math.sin(x * 0.78 + time * 0.34) * Math.cos(z * 0.67 - time * 0.25) * 0.82 +
+      Math.sin((x + z) * 0.49 + time * 0.28) * 0.4 +
+      Math.cos(Math.hypot(x, z) * 0.74 - time * 0.22) * 0.28
     );
 
     const draw = (timestamp) => {
@@ -104,14 +104,14 @@ function AmbientBackground() {
       const time = reducedMotion.matches ? 0 : timestamp * 0.00024;
       context.clearRect(0, 0, width, height);
 
-      const scale = Math.min(width / 21, height / 15, 68);
-      const centerX = width * 0.72;
-      const centerY = height * 0.66;
+      const scale = Math.min(width / 19, height / 13, 72);
+      const centerX = width * 0.56;
+      const centerY = height * 0.54;
       const project = (x, z, elevation = 0) => {
         const diagonal = Math.SQRT1_2;
         return [
           centerX + (x - z) * diagonal * scale,
-          centerY + (x + z) * diagonal * scale * 0.34 - elevation * scale * 0.42
+          centerY + (x + z) * diagonal * scale * 0.34 - elevation * scale * 0.48
         ];
       };
       const edgeFade = (x, z) => {
@@ -146,7 +146,7 @@ function AmbientBackground() {
               context.lineTo(point[0], point[1]);
             }
           }
-          context.strokeStyle = `rgba(${lineColor}, ${0.035 + (rowFade / (gridSteps + 1)) * 0.075})`;
+          context.strokeStyle = `rgba(${lineColor}, ${0.09 + (rowFade / (gridSteps + 1)) * 0.14})`;
           context.stroke();
         }
       }
@@ -160,7 +160,7 @@ function AmbientBackground() {
         const size = 0.6 + (index % 3) * 0.2;
         context.beginPath();
         context.arc(point[0], point[1], size, 0, Math.PI * 2);
-        context.fillStyle = `rgba(${pointColor}, ${fade * (reducedMotion.matches ? 0.09 : 0.14)})`;
+        context.fillStyle = `rgba(${pointColor}, ${fade * (reducedMotion.matches ? 0.17 : 0.24)})`;
         context.fill();
       });
 

@@ -1,0 +1,16 @@
+{
+  "name": "cod-saep-paglione-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "http": "^0.0.1-security",
+    "mysql2": "^3.24.6",
+    "nodemon": "^3.1.14"
+  }
+}

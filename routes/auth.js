@@ -46,4 +46,27 @@ router.post('/logout', async (req, res) => {
     }
 });
 
+router.get('/users', async (req, res) => {
+    try {
+        const pool = await database.initialize();
+        const access = await auth.authorizeAdmin(pool, req.headers);
+        if (access.error) return res.status(access.error.status).json(access.error.body);
+        return res.json(await auth.listUsers(pool));
+    } catch (error) {
+        return sendError(res, error, 'Nao foi possivel listar usuarios.');
+    }
+});
+
+router.post('/users', async (req, res) => {
+    try {
+        const pool = await database.initialize();
+        const access = await auth.authorizeAdmin(pool, req.headers, { write: true });
+        if (access.error) return res.status(access.error.status).json(access.error.body);
+        const result = await auth.createUser(pool, req.body?.username, req.body?.password);
+        return res.status(result.status).json(result.body);
+    } catch (error) {
+        return sendError(res, error, 'Nao foi possivel cadastrar o usuario.');
+    }
+});
+
 module.exports = router;

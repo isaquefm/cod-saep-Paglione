@@ -105,6 +105,53 @@ function LoginScreen({ onAuthenticated, message }) {
     </main>
   );
 }
+function UserManagement({ csrfToken }) {
+  const [users, setUsers] = useState([]);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const loadUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const response = await fetch('/api/auth/users', { cache: 'no-store', credentials: 'same-origin' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || 'Nao foi possivel carregar os usuarios.');
+      setUsers(result);
+    } catch (loadError) { setError(loadError.message); }
+    finally { setLoadingUsers(false); }
+  }, []);
+  useEffect(() => { loadUsers(); }, [loadUsers]);
+  async function submit(event) {
+    event.preventDefault(); setBusy(true); setError(''); setSuccess('');
+    try {
+      const response = await fetch('/api/auth/users', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken }, body: JSON.stringify({ username, password }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || 'Nao foi possivel cadastrar o usuario.');
+      setUsername(''); setPassword(''); setSuccess(`Usuario ${result.username} cadastrado com sucesso.`); await loadUsers();
+    } catch (saveError) { setError(saveError.message); }
+    finally { setBusy(false); }
+  }
+  return <section className="user-management-grid">
+    <section className="panel user-form-panel" aria-labelledby="users-form-title">
+      <div className="panel-heading"><div><span className="eyebrow">ACESSO AO SISTEMA</span><h2 id="users-form-title">Cadastrar usuario</h2><p>Somente o administrador pode criar novos acessos.</p></div></div>
+      {error && <div className="notice notice-error" role="alert">{error}</div>}{success && <div className="notice notice-success" role="status">{success}</div>}
+      <form className="form-grid user-form" onSubmit={submit}>
+        <label>Nome de usuario<input required minLength={3} maxLength={64} pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,63}" autoComplete="off" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Ex.: maria.silva" /></label>
+        <label>Senha inicial<input required minLength={12} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Pelo menos 12 caracteres" /></label>
+        <span className="form-hint">Usuario: letras, numeros, ponto, hifen ou sublinhado. Senha: pelo menos 12 caracteres.</span>
+        <button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Cadastrando...' : 'Cadastrar usuario'}</button>
+      </form>
+    </section>
+    <section className="panel user-list-panel" aria-labelledby="users-list-title">
+      <div className="panel-heading"><div><span className="eyebrow">CONTAS CADASTRADAS</span><h2 id="users-list-title">Usuarios do sistema</h2><p>{users.length} usuario(s), alem do administrador.</p></div><button type="button" className="button button-quiet" onClick={loadUsers} disabled={loadingUsers}>Atualizar</button></div>
+      {loadingUsers ? <div className="loading-panel" role="status"><span className="spinner" /> Carregando usuarios...</div> : users.length ? <ul className="user-list">{users.map((user) => <li key={user.username}><span className="user-list-avatar">{user.username.charAt(0).toUpperCase()}</span><span><strong>{user.username}</strong><small>Acesso cadastrado</small></span></li>)}</ul> : <div className="empty-state"><strong>Nenhum usuario adicional</strong><span>Cadastre pessoas que precisam acessar o estoque.</span></div>}
+    </section>
+  </section>;
+}
+
 function ProductDialog({ product, onClose, onSave, saving, error }) {
   const [form, setForm] = useState(product || emptyProduct);
   useEffect(() => setForm(product || emptyProduct), [product]);
@@ -195,6 +242,7 @@ export default function Home() {
   const [theme, setTheme] = useState('light');
   const [authStatus, setAuthStatus] = useState('checking');
   const [csrfToken, setCsrfToken] = useState('');
+  const [authInfo, setAuthInfo] = useState(null);
   const [authMessage, setAuthMessage] = useState('');
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -230,6 +278,7 @@ export default function Home() {
         if (!active) return;
         if (data.authenticated) {
           setCsrfToken(data.csrfToken);
+          setAuthInfo(data);
           setAuthStatus('authenticated');
         } else setAuthStatus('anonymous');
       })
@@ -240,6 +289,15 @@ export default function Home() {
       });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || authInfo) return;
+    let active = true;
+    fetch('/api/auth/session', { cache: 'no-store', credentials: 'same-origin' })
+      .then((response) => response.json()).then((data) => { if (active && data.authenticated) setAuthInfo(data); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [authStatus, authInfo]);
 
   function selectTheme(nextTheme) {
     document.documentElement.dataset.theme = nextTheme;
@@ -257,6 +315,7 @@ export default function Home() {
     } catch (requestError) {
       if (requestError.status === 401) {
         setCsrfToken('');
+        setAuthInfo(null);
         setAuthStatus('anonymous');
         setAuthMessage('Sua sessão expirou. Entre novamente.');
       }
@@ -403,11 +462,13 @@ export default function Home() {
       return;
     }
     setCsrfToken('');
+    setAuthInfo(null);
     setAuthStatus('anonymous');
   }
 
-  const selectedView = views.find((view) => view.id === activeView);
-  const title = { overview: 'Visão geral', products: 'Produtos', movements: 'Movimentações', reports: 'Relatórios' }[activeView];
+  const navigationViews = authInfo?.isAdmin ? [...views, { id: 'users', label: 'Usuarios', icon: 'chart' }] : views;
+  const selectedView = navigationViews.find((view) => view.id === activeView);
+  const title = { overview: 'Visão geral', products: 'Produtos', movements: 'Movimentações', reports: 'Relatórios' }[activeView] || (activeView === 'users' ? 'Usuarios' : '');
   const subtitle = {
     overview: 'Acompanhe o resumo e a distribuição do seu estoque.',
     products: 'Cadastre e mantenha seu catálogo atualizado.',
@@ -427,14 +488,14 @@ export default function Home() {
       <aside className="sidebar" aria-label="Menu do sistema">
         <a className="brand" href="#" onClick={(event) => { event.preventDefault(); setActiveView('overview'); }}><span className="brand-mark"><Icon name="box" size={21} /></span><span>estoque<span className="brand-dot">.</span></span></a>
         <div className="sidebar-section-label">MENU PRINCIPAL</div>
-        <nav className="navigation" aria-label="Navegação principal">{views.map((view) => <button type="button" key={view.id} aria-current={activeView === view.id ? 'page' : undefined} className={`nav-item ${activeView === view.id ? 'active' : ''}`} onClick={() => { setActiveView(view.id); setNotice(''); }}><Icon name={view.icon} size={18} /><span>{view.label}</span>{view.id === 'products' && <span className="nav-count" aria-label={`${products.length} produtos`}>{products.length}</span>}</button>)}</nav>
+        <nav className="navigation" aria-label="Navegação principal">{navigationViews.map((view) => <button type="button" key={view.id} aria-current={activeView === view.id ? 'page' : undefined} className={`nav-item ${activeView === view.id ? 'active' : ''}`} onClick={() => { setActiveView(view.id); setNotice(''); }}><Icon name={view.icon} size={18} /><span>{view.label}</span>{view.id === 'products' && <span className="nav-count" aria-label={`${products.length} produtos`}>{products.length}</span>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="sidebar-avatar">E</div><div className="sidebar-user"><strong>Equipe</strong><span>Gestão de estoque</span></div><span className="online-dot" title="Interface ativa" /></div>
       </aside>
 
       <section className="main-content">
         <header className="topbar"><div className="breadcrumb" aria-label={`Localização: Painel, ${selectedView?.label}`}><span className="breadcrumb-root">Painel</span><span aria-hidden="true">/</span><strong>{selectedView?.label}</strong></div><div className="topbar-actions"><button type="button" className="logout-button" onClick={logout}>Sair</button><div className="theme-switch" role="group" aria-label="Escolha o tema da interface"><button type="button" className="theme-option" aria-label="Tema claro" aria-pressed={theme === 'light'} onClick={() => selectTheme('light')}><Icon name="sun" size={16} /><span>Claro</span></button><button type="button" className="theme-option" aria-label="Tema escuro" aria-pressed={theme === 'dark'} onClick={() => selectTheme('dark')}><Icon name="moon" size={16} /><span>Escuro</span></button></div><div className={`system-status ${apiOnline === false ? 'status-offline' : apiOnline ? 'status-online' : 'status-pending'}`} role="status" aria-live="polite"><i /> <span>{apiOnline === null ? 'Conectando à API' : apiOnline ? 'API disponível' : 'API indisponível'}</span></div></div></header>
         <div className="page-content">
-          <div className="page-heading"><div><span className="eyebrow">GESTÃO DE ESTOQUE</span><h1>{title}</h1><p>{subtitle}</p></div>{activeView === 'products' && <button className="button button-primary add-button" onClick={() => openDialog()}><Icon name="plus" size={17} /> Adicionar produto</button>}</div>
+          <div className="page-heading"><div><span className="eyebrow">GESTÃO DE ESTOQUE</span><h1>{activeView === 'users' ? 'Usuarios' : title}</h1><p>{activeView === 'users' ? 'Gerencie quem pode acessar o sistema.' : subtitle}</p></div>{activeView === 'products' && <button className="button button-primary add-button" onClick={() => openDialog()}><Icon name="plus" size={17} /> Adicionar produto</button>}</div>
           {error && <div className="notice notice-error" role="alert"><span>{error}</span><button className="button button-quiet retry-button" onClick={loadProducts}>Tentar novamente</button></div>}
           {notice && <div className={`notice ${noticeError ? 'notice-error' : 'notice-success'}`} role={noticeError ? 'alert' : 'status'}><span>{notice}</span><button className="notice-close" aria-label="Fechar aviso" onClick={() => setNotice('')}>×</button></div>}
 
@@ -459,8 +520,7 @@ export default function Home() {
               </form>
               {!products.length && <p className="form-hint">Cadastre um produto antes de registrar uma movimentação.</p>}
             </section>
-          ) : (
-            <section className="panel reports-panel">
+          ) : activeView === 'users' && authInfo?.isAdmin ? <UserManagement csrfToken={csrfToken} /> : (<section className="panel reports-panel">
               <div className="panel-heading"><div><span className="eyebrow">ANÁLISE</span><h2>Relatórios de estoque</h2><p>Consulte movimentações por período e produtos fora dos limites.</p></div><span className="panel-icon large"><Icon name="chart" size={21} /></span></div>
               <form className="report-form" onSubmit={loadReports}>
                 <div className="report-fieldset"><strong>Período de movimentação</strong><div className="form-row"><label>Data inicial<input required type="date" value={period.start} onChange={(event) => setPeriod({ ...period, start: event.target.value })} /></label><label>Data final<input required type="date" min={period.start} value={period.end} onChange={(event) => setPeriod({ ...period, end: event.target.value })} /></label></div></div>

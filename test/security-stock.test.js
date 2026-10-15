@@ -12,7 +12,7 @@ const authEnv = {
 };
 
 class MemorySessionPool {
-  constructor() { this.sessions = new Map(); }
+  constructor() { this.sessions = new Map(); this.users = new Map(); }
   async query(sql, values) {
     if (sql.startsWith('DELETE FROM admin_sessions WHERE expires_at')) {
       for (const [id, expiry] of this.sessions) if (expiry <= values[0]) this.sessions.delete(id);
@@ -25,6 +25,18 @@ class MemorySessionPool {
     if (sql.startsWith('SELECT 1 FROM admin_sessions')) {
       const expiry = this.sessions.get(values[0]);
       return { rowCount: expiry && expiry > values[1] ? 1 : 0, rows: expiry ? [{ '?column?': 1 }] : [] };
+    }
+    if (sql.startsWith('SELECT password_hash FROM admin_users')) {
+      const user = this.users.get(values[0]);
+      return { rowCount: user ? 1 : 0, rows: user ? [{ password_hash: user.password_hash }] : [] };
+    }
+    if (sql.startsWith('SELECT username, created_at FROM admin_users')) {
+      return { rowCount: this.users.size, rows: [...this.users.values()].map(({ username, created_at }) => ({ username, created_at })) };
+    }
+    if (sql.startsWith('INSERT INTO admin_users')) {
+      if (this.users.has(values[0])) { const error = new Error('duplicate'); error.code = '23505'; throw error; }
+      this.users.set(values[0], { username: values[0], password_hash: values[1], created_at: new Date(0) });
+      return { rowCount: 1, rows: [] };
     }
     if (sql.startsWith('DELETE FROM admin_sessions WHERE session_id')) {
       const deleted = this.sessions.delete(values[0]);
@@ -152,6 +164,28 @@ test('login rejects bad credentials and untrusted origins', async () => {
   assert.equal(pool.sessions.size, 0);
 });
 
+test('only an administrator can create registered user accounts', async () => {
+  const pool = new MemorySessionPool();
+  const created = await auth.createUser(pool, 'Maria.Silva', 'uma-senha-segura-123', authEnv);
+  assert.equal(created.status, 201);
+  assert.equal(pool.users.get('maria.silva').password_hash.includes('uma-senha-segura-123'), false);
+  assert.equal((await auth.createUser(pool, 'maria.silva', 'outra-senha-segura-123', authEnv)).status, 409);
+  assert.equal((await auth.createUser(pool, 'x', 'short', authEnv)).status, 400);
+
+  const userLogin = await auth.login(pool, { username: 'maria.silva', password: 'uma-senha-segura-123' }, authEnv.APP_ORIGIN, authEnv);
+  assert.equal(userLogin.status, 200);
+  assert.equal(userLogin.body.isAdmin, false);
+  const userCookie = userLogin.cookie.split(';')[0];
+  const userHeaders = { cookie: userCookie, origin: authEnv.APP_ORIGIN, 'x-csrf-token': userLogin.body.csrfToken };
+  assert.equal((await auth.authorize(pool, { cookie: userCookie }, {}, authEnv)).session.admin, false);
+  assert.equal((await auth.authorizeAdmin(pool, userHeaders, { write: true }, authEnv)).error.status, 403);
+
+  const adminLogin = await auth.login(pool, { username: authEnv.STOCK_ADMIN_USERNAME, password: authEnv.STOCK_ADMIN_PASSWORD }, authEnv.APP_ORIGIN, authEnv);
+  const adminCookie = adminLogin.cookie.split(';')[0];
+  const adminHeaders = { cookie: adminCookie, origin: authEnv.APP_ORIGIN, 'x-csrf-token': adminLogin.body.csrfToken };
+  assert.ok((await auth.authorizeAdmin(pool, adminHeaders, { write: true }, authEnv)).session.admin);
+});
+
 test('session cookie is secure in production and signatures cannot be altered', () => {
   const production = { ...authEnv, NODE_ENV: 'production', APP_ORIGIN: 'https://stock.example' };
   const session = auth.createSession(production.STOCK_ADMIN_USERNAME, production, 1000);
@@ -201,6 +235,26 @@ test('protected Express stock routes reject requests without a session; health r
   assert.equal(loginResponse.status, 200);
   const loginResult = await loginResponse.json();
   const cookie = loginResponse.headers.get('set-cookie').split(';')[0];
+  const createUserResponse = await fetch(origin + '/auth/users', {
+    method: 'POST',
+    headers: { Cookie: cookie, Origin: authEnv.APP_ORIGIN, 'X-CSRF-Token': loginResult.csrfToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'operador.um', password: 'senha-forte-operador-123' })
+  });
+  assert.equal(createUserResponse.status, 201);
+  const userLoginResponse = await fetch(origin + '/auth/login', {
+    method: 'POST', headers: { Origin: authEnv.APP_ORIGIN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'operador.um', password: 'senha-forte-operador-123' })
+  });
+  assert.equal(userLoginResponse.status, 200);
+  const userLogin = await userLoginResponse.json();
+  const userCookie = userLoginResponse.headers.get('set-cookie').split(';')[0];
+  assert.equal(userLogin.isAdmin, false);
+  const deniedUserCreation = await fetch(origin + '/auth/users', {
+    method: 'POST',
+    headers: { Cookie: userCookie, Origin: authEnv.APP_ORIGIN, 'X-CSRF-Token': userLogin.csrfToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'operador.dois', password: 'senha-forte-operador-456' })
+  });
+  assert.equal(deniedUserCreation.status, 403);
   const authorized = await fetch(origin + '/loja/listar', { headers: { Cookie: cookie } });
   assert.equal(authorized.status, 200);
   assert.deepEqual(await authorized.json(), []);

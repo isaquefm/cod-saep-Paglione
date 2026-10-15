@@ -47,6 +47,13 @@ async function initialize() {
                 )
             `);
             await database.query('CREATE INDEX IF NOT EXISTS admin_sessions_expiry_idx ON admin_sessions (expires_at)');
+            await database.query(`
+                CREATE TABLE IF NOT EXISTS admin_users (
+                    username VARCHAR(64) PRIMARY KEY CHECK (username = lower(username)),
+                    password_hash TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
         })().catch((error) => {
             schemaReady = undefined;
             throw error;

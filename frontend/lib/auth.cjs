@@ -175,6 +175,108 @@ async function logout(pool, headers, env = process.env, now = Date.now()) {
   return { status: 204, cookie: makeCookie('', env, true) };
 }
 
+// New role-aware sessions: the environment credential is the sole administrator.
+function createSession(username, isAdmin, env = process.env, now = Date.now()) {
+  if (typeof isAdmin !== 'boolean') {
+    const legacyEnv = isAdmin || process.env;
+    const legacyNow = env;
+    isAdmin = true;
+    env = legacyEnv;
+    if (typeof legacyNow === 'number') now = legacyNow;
+  }
+  const config = getConfig(env);
+  const payload = { sub: username, admin: isAdmin === true, sid: crypto.randomUUID(), csrf: crypto.randomBytes(32).toString('base64url'), exp: Math.floor(now / 1000) + SESSION_SECONDS };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return { ...payload, token: `${encoded}.${sign(encoded, config.secret)}` };
+}
+
+function verifySession(token, env = process.env, now = Date.now()) {
+  const config = getConfig(env);
+  if (typeof token !== 'string' || token.length > 2048) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2 || !safeEqual(parts[1], sign(parts[0], config.secret))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    if (typeof payload.sub !== 'string' || !/^[a-z0-9._-]{3,64}$/.test(payload.sub) || typeof payload.admin !== 'boolean' ||
+        typeof payload.sid !== 'string' || typeof payload.csrf !== 'string' || !Number.isInteger(payload.exp) || payload.exp <= Math.floor(now / 1000)) return null;
+    if (payload.admin && payload.sub !== config.username.toLowerCase()) return null;
+    return payload;
+  } catch { return null; }
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  return `scrypt$${salt.toString('base64url')}$${crypto.scryptSync(password, salt, 64).toString('base64url')}`;
+}
+
+function verifyPassword(password, encoded) {
+  if (typeof encoded !== 'string') return false;
+  const [algorithm, saltText, digestText] = encoded.split('$');
+  if (algorithm !== 'scrypt' || !saltText || !digestText) return false;
+  try {
+    const expected = Buffer.from(digestText, 'base64url');
+    const actual = crypto.scryptSync(password, Buffer.from(saltText, 'base64url'), expected.length);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  } catch { return false; }
+}
+
+async function login(pool, credentials, origin, env = process.env, now = Date.now()) {
+  const config = getConfig(env);
+  if (!validOrigin(origin, config)) return { status: 403, body: { error: 'Origem invalida.' } };
+  const username = typeof credentials?.username === 'string' ? credentials.username.trim().toLowerCase() : '';
+  const password = typeof credentials?.password === 'string' ? credentials.password : '';
+  let isAdmin = false;
+  let authenticated = safeEqual(username, config.username.toLowerCase()) && safeEqual(password, config.password);
+  if (authenticated) isAdmin = true;
+  else if (/^[a-z0-9._-]{3,64}$/.test(username) && Buffer.byteLength(password, 'utf8') <= 256) {
+    const result = await pool.query('SELECT password_hash FROM admin_users WHERE username = $1', [username]);
+    authenticated = result.rowCount > 0 && verifyPassword(password, result.rows[0].password_hash);
+  }
+  if (!authenticated) return { status: 401, body: { error: 'Usuario ou senha invalidos.' } };
+  const session = createSession(username, isAdmin, env, now);
+  await saveSession(pool, session, new Date(now));
+  return { status: 200, body: { authenticated: true, csrfToken: session.csrf, expiresAt: session.exp * 1000, username, isAdmin }, cookie: makeCookie(session.token, env) };
+}
+
+async function currentSession(pool, cookieHeader, env = process.env, now = Date.now()) {
+  getConfig(env);
+  const session = verifySession(readCookie(cookieHeader), env, now);
+  if (!session || !(await sessionIsActive(pool, session, new Date(now)))) return { authenticated: false };
+  return { authenticated: true, csrfToken: session.csrf, expiresAt: session.exp * 1000, username: session.sub, isAdmin: session.admin };
+}
+
+async function authorizeAdmin(pool, headers, { write = false } = {}, env = process.env, now = Date.now()) {
+  const result = await authorize(pool, headers, { write }, env, now);
+  if (result.error) return result;
+  if (!result.session.admin) return { error: { status: 403, body: { error: 'Somente o administrador pode gerenciar usuarios.' } } };
+  return result;
+}
+
+function validateNewUser(username, password, env = process.env) {
+  const normalized = typeof username === 'string' ? username.trim().toLowerCase() : '';
+  if (!/^[a-z0-9][a-z0-9._-]{2,63}$/.test(normalized)) return { error: 'Use usuario de 3 a 64 caracteres: letras, numeros, ponto, hifen ou sublinhado.' };
+  if (normalized === getConfig(env).username.toLowerCase()) return { error: 'Esse usuario e reservado ao administrador.' };
+  if (typeof password !== 'string' || Buffer.byteLength(password, 'utf8') < 12 || Buffer.byteLength(password, 'utf8') > 256) return { error: 'A senha deve ter entre 12 e 256 bytes.' };
+  return { value: { username: normalized, password } };
+}
+
+async function listUsers(pool) {
+  const result = await pool.query('SELECT username, created_at FROM admin_users ORDER BY username');
+  return result.rows;
+}
+
+async function createUser(pool, username, password, env = process.env) {
+  const parsed = validateNewUser(username, password, env);
+  if (parsed.error) return { status: 400, body: { error: parsed.error } };
+  try {
+    await pool.query('INSERT INTO admin_users (username, password_hash) VALUES ($1, $2)', [parsed.value.username, hashPassword(parsed.value.password)]);
+    return { status: 201, body: { username: parsed.value.username } };
+  } catch (error) {
+    if (error.code === '23505') return { status: 409, body: { error: 'Este usuario ja esta cadastrado.' } };
+    throw error;
+  }
+}
+
 module.exports = {
   COOKIE_NAME,
   SESSION_SECONDS,
@@ -184,6 +286,9 @@ module.exports = {
   readCookie,
   getHeader,
   createSession,
+  hashPassword,
+  verifyPassword,
+  validateNewUser,
   verifySession,
   sessionIsActive,
   saveSession,
@@ -191,5 +296,8 @@ module.exports = {
   currentSession,
   preAuthorize,
   authorize,
+  authorizeAdmin,
+  listUsers,
+  createUser,
   logout
 };

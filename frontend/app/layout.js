@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Estoque | Painel de controle',
-  description: 'Gerencie produtos, movimentações e relatórios do seu estoque.'
+  title: 'Estoque | Gestão operacional',
+  description: 'Painel para consulta e gestão de produtos, movimentações e relatórios de estoque.'
 };
 
 export default function RootLayout({ children }) {

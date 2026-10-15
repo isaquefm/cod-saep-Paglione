@@ -65,10 +65,10 @@ function ProductDialog({ product, onClose, onSave, saving, error }) {
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="product-dialog-title">
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="product-dialog-title" aria-describedby="product-dialog-description">
         <div className="modal-heading">
-          <div><span className="eyebrow">{product ? 'ATUALIZAÇÃO' : 'NOVO CADASTRO'}</span><h2 id="product-dialog-title">{product ? 'Editar produto' : 'Adicionar produto'}</h2></div>
-          <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">×</button>
+          <div><span className="eyebrow">{product ? 'ATUALIZAÇÃO' : 'NOVO CADASTRO'}</span><h2 id="product-dialog-title">{product ? 'Editar produto' : 'Adicionar produto'}</h2><p id="product-dialog-description">Preencha os dados para manter o catálogo atualizado.</p></div>
+        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar janela">×</button>
         </div>
         <form className="form-grid" onSubmit={submit}>
           <label>Nome do produto<input autoFocus required maxLength={120} value={form.nome} placeholder="Ex.: Café em grãos" onChange={(event) => setForm({ ...form, nome: event.target.value })} /></label>
@@ -89,15 +89,15 @@ function ProductTable({ products, onEdit, onDelete, compact = false }) {
   if (!products.length) return <div className="empty-state"><span className="empty-icon"><Icon name="box" size={23} /></span><strong>Nenhum produto encontrado</strong><span>Cadastre um produto ou ajuste sua busca.</span></div>;
   return (
     <div className="table-wrap">
-      <table>
-        <thead><tr><th>PRODUTO</th><th>CATEGORIA</th><th>QUANTIDADE</th><th>VALOR UNITÁRIO</th>{!compact && <th className="actions-heading">AÇÕES</th>}</tr></thead>
+      <table aria-label="Produtos cadastrados">
+        <thead><tr><th scope="col">PRODUTO</th><th scope="col">CATEGORIA</th><th scope="col">QUANTIDADE</th><th scope="col">VALOR UNITÁRIO</th>{!compact && <th scope="col" className="actions-heading">AÇÕES</th>}</tr></thead>
         <tbody>{products.map((product, index) => (
           <tr key={product.id}>
             <td><div className="product-cell"><span className={`product-avatar tone-${index % 4}`}>{String(product.nome || '?').trim().charAt(0).toUpperCase()}</span><span><strong className="product-name">{product.nome}</strong><small>Cod. {product.id}</small></span></div></td>
             <td><span className="category-tag">{product.categoria || 'Sem categoria'}</span></td>
             <td><strong className="quantity-value">{Number(product.quantidade || 0).toLocaleString('pt-BR')}</strong><span className="quantity-unit"> un.</span></td>
             <td>{Number(product.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-            {!compact && <td><div className="row-actions"><button className="icon-button" onClick={() => onEdit(product)} aria-label={`Editar ${product.nome}`} title="Editar"><Icon name="edit" size={17} /></button><button className="icon-button delete-action" onClick={() => onDelete(product)} aria-label={`Excluir ${product.nome}`} title="Excluir"><Icon name="trash" size={17} /></button></div></td>}
+            {!compact && <td><div className="row-actions"><button type="button" className="icon-button" onClick={() => onEdit(product)} aria-label={`Editar ${product.nome}`} title="Editar"><Icon name="edit" size={17} /></button><button type="button" className="icon-button delete-action" onClick={() => onDelete(product)} aria-label={`Excluir ${product.nome}`} title="Excluir"><Icon name="trash" size={17} /></button></div></td>}
           </tr>
         ))}</tbody>
       </table>
@@ -123,10 +123,10 @@ function Overview({ products, categories, onNavigate, onEdit, onDelete, category
             const value = Number(item.total_categoria || 0);
             return <div className="category-row" key={item.categoria}><div className="category-label"><span>{item.categoria || 'Sem categoria'}</span><strong>{value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></div><div className="bar-track"><span className={`bar-fill bar-${index % 4}`} style={{ width: `${largestCategory ? Math.max(3, value / largestCategory * 100) : 0}%` }} /></div></div>;
           })}</div> : <div className="empty-inline">Sem dados de categoria disponíveis.</div>}
-          <button className="text-link" onClick={() => onNavigate('reports')}>Ver relatórios <Icon name="arrow" size={15} /></button>
+          <button type="button" className="text-link" onClick={() => onNavigate('reports')}>Ver relatórios <Icon name="arrow" size={15} /></button>
         </section>
         <section className="panel recent-panel">
-          <div className="section-heading"><div><span className="eyebrow">CATÁLOGO</span><h2>Produtos recentes</h2></div><button className="text-link" onClick={() => onNavigate('products')}>Ver todos <Icon name="arrow" size={15} /></button></div>
+          <div className="section-heading"><div><span className="eyebrow">CATÁLOGO</span><h2>Produtos cadastrados</h2></div><button type="button" className="text-link" onClick={() => onNavigate('products')}>Ver todos <Icon name="arrow" size={15} /></button></div>
           <ProductTable products={products.slice(0, 4)} compact onEdit={onEdit} onDelete={onDelete} />
         </section>
       </div>
@@ -290,21 +290,21 @@ export default function Home() {
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar" aria-label="Menu do sistema">
         <a className="brand" href="#" onClick={(event) => { event.preventDefault(); setActiveView('overview'); }}><span className="brand-mark"><Icon name="box" size={21} /></span><span>estoque<span className="brand-dot">.</span></span></a>
         <div className="sidebar-section-label">MENU PRINCIPAL</div>
-        <nav className="navigation" aria-label="Navegação principal">{views.map((view) => <button key={view.id} className={`nav-item ${activeView === view.id ? 'active' : ''}`} onClick={() => { setActiveView(view.id); setNotice(''); }}><Icon name={view.icon} size={18} /><span>{view.label}</span>{view.id === 'products' && <span className="nav-count">{products.length}</span>}</button>)}</nav>
+        <nav className="navigation" aria-label="Navegação principal">{views.map((view) => <button type="button" key={view.id} aria-current={activeView === view.id ? 'page' : undefined} className={`nav-item ${activeView === view.id ? 'active' : ''}`} onClick={() => { setActiveView(view.id); setNotice(''); }}><Icon name={view.icon} size={18} /><span>{view.label}</span>{view.id === 'products' && <span className="nav-count" aria-label={`${products.length} produtos`}>{products.length}</span>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="sidebar-avatar">E</div><div className="sidebar-user"><strong>Equipe</strong><span>Gestão de estoque</span></div><span className="online-dot" title="Interface ativa" /></div>
       </aside>
 
       <section className="main-content">
-        <header className="topbar"><div className="breadcrumb">Painel <span>/</span> <strong>{selectedView?.label}</strong></div><div className={`system-status ${apiOnline === false ? 'status-offline' : ''}`}><i /> {apiOnline === null ? 'Conectando...' : apiOnline ? 'API disponível' : 'API indisponível'}</div></header>
+        <header className="topbar"><div className="breadcrumb" aria-label={`Localização: Painel, ${selectedView?.label}`}><span className="breadcrumb-root">Painel</span><span aria-hidden="true">/</span><strong>{selectedView?.label}</strong></div><div className={`system-status ${apiOnline === false ? 'status-offline' : apiOnline ? 'status-online' : 'status-pending'}`} role="status" aria-live="polite"><i /> {apiOnline === null ? 'Conectando à API' : apiOnline ? 'API disponível' : 'API indisponível'}</div></header>
         <div className="page-content">
           <div className="page-heading"><div><span className="eyebrow">GESTÃO DE ESTOQUE</span><h1>{title}</h1><p>{subtitle}</p></div>{activeView === 'products' && <button className="button button-primary add-button" onClick={() => openDialog()}><Icon name="plus" size={17} /> Adicionar produto</button>}</div>
           {error && <div className="notice notice-error" role="alert"><span>{error}</span><button className="button button-quiet retry-button" onClick={loadProducts}>Tentar novamente</button></div>}
           {notice && <div className={`notice ${noticeError ? 'notice-error' : 'notice-success'}`} role={noticeError ? 'alert' : 'status'}><span>{notice}</span><button className="notice-close" aria-label="Fechar aviso" onClick={() => setNotice('')}>×</button></div>}
 
-          {loading ? <div className="loading-panel"><span className="spinner" /> Carregando dados do estoque...</div> : activeView === 'overview' ? (
+          {loading ? <div className="loading-panel" role="status" aria-live="polite"><span className="spinner" /> Carregando dados do estoque...</div> : activeView === 'overview' ? (
             <Overview products={products} categories={categories} onNavigate={setActiveView} onEdit={openDialog} onDelete={deleteProduct} categoryError={categoryError} />
           ) : activeView === 'products' ? (
             <section className="panel">

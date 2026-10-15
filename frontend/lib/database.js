@@ -1,4 +1,4 @@
-const { Pool } = require('pg');
+const { Pool } = require('@neondatabase/serverless');
 
 let pool;
 let schemaReady;
@@ -7,14 +7,9 @@ function getPool() {
     if (!process.env.DATABASE_URL) {
         throw new Error('DATABASE_URL não está configurada.');
     }
-    const connection = new URL(process.env.DATABASE_URL);
-    connection.searchParams.set('sslmode', 'verify-full');
-    connection.searchParams.set('sslnegotiation', 'direct');
-    connection.searchParams.delete('channel_binding');
     pool ||= new Pool({
-        connectionString: connection.toString(),
-        enableChannelBinding: true,
-        max: 1,
+        connectionString: process.env.DATABASE_URL,
+        max: 5,
         idleTimeoutMillis: 10000,
         connectionTimeoutMillis: 15000
     });

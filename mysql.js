@@ -1,24 +1,62 @@
-﻿const mysql = require('mysql2');
+const { Pool } = require('pg');
 const dotenv = require('dotenv');
 dotenv.config();
 
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined
 });
 
-pool.on('connection', () => {
-    console.log('Conexão com o banco de dados estabelecida');
-});
+function postgresQuery(client, sql, params, callback) {
+    let index = 0;
+    let statement = sql.replace(/\?/g, () => `$${++index}`);
+    const isInsert = /^\s*INSERT\s+INTO\s+/i.test(statement);
+    if (isInsert && !/\bRETURNING\b/i.test(statement)) statement += ' RETURNING id';
 
-pool.on('error', (err) => {
-    console.error('Erro na conexão com o banco de dados:', err);
-});
+    client.query(statement, params || [], (error, result) => {
+        if (error) {
+            if (error.code === '23505') error.code = 'ER_DUP_ENTRY';
+            if (error.code === '23503') error.code = 'ER_ROW_IS_REFERENCED';
+            callback(error);
+            return;
+        }
+        if (isInsert) {
+            callback(null, { insertId: result.rows[0]?.id, affectedRows: result.rowCount });
+        } else if (/^\s*(UPDATE|DELETE)\b/i.test(statement)) {
+            callback(null, { affectedRows: result.rowCount });
+        } else {
+            callback(null, result.rows);
+        }
+    });
+}
 
-module.exports = pool;
+module.exports = {
+    query(sql, params, callback) {
+        if (typeof params === 'function') {
+            callback = params;
+            params = [];
+        }
+        postgresQuery(pool, sql, params, callback);
+    },
+    getConnection(callback) {
+        pool.connect((error, client) => {
+            if (error) return callback(error);
+            callback(null, {
+                query(sql, params, done) {
+                    if (typeof params === 'function') {
+                        done = params;
+                        params = [];
+                    }
+                    postgresQuery(client, sql, params, done);
+                },
+                beginTransaction(done) { client.query('BEGIN', done); },
+                commit(done) { client.query('COMMIT', done); },
+                rollback(done) { client.query('ROLLBACK', done); },
+                release() { client.release(); }
+            });
+        });
+    },
+    on(event, handler) {
+        pool.on(event === 'connection' ? 'connect' : event, handler);
+    }
+};

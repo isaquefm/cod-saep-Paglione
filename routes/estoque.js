@@ -219,7 +219,7 @@ router.post('/porcentagem', (req, res) => {
 
     const sql = `
         SELECT id, nome, quantidade, categoria,
-               ROUND((quantidade / ?) * 100, 2) AS percentual_atingido
+               ROUND((quantidade::numeric / ?) * 100, 2) AS percentual_atingido
         FROM produtos
         WHERE quantidade <= ? OR quantidade >= ?
     `;

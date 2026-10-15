@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const emptyProduct = { nome: '', quantidade: '', valor: '', categoria: '' };
 const localDateTime = () => {
@@ -49,6 +49,166 @@ async function apiRequest(path, options = {}) {
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) throw new Error(data?.error || 'Não foi possível concluir a solicitação.');
   return data;
+}
+
+function AmbientBackground() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = canvas?.parentElement;
+    const context = canvas?.getContext('2d', { alpha: true });
+    if (!canvas || !container || !context) return;
+
+    const radius = 7.5;
+    const gridLines = 52;
+    const gridSteps = 64;
+    const particles = Array.from({ length: 620 }, (_, index) => {
+      const angle = index * Math.PI * (3 - Math.sqrt(5));
+      const distance = radius * Math.sqrt((index + 0.5) / 620);
+      return {
+        x: Math.cos(angle) * distance,
+        z: Math.sin(angle) * distance,
+        phase: (index * 0.61803398875) % 1
+      };
+    });
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let width = 0;
+    let height = 0;
+    let pixelRatio = 1;
+    let frame = 0;
+    let lastFrame = 0;
+    let visible = !document.hidden;
+    let lineColor = '78, 123, 86';
+    let pointColor = '68, 119, 78';
+
+    const readColors = () => {
+      const styles = getComputedStyle(document.documentElement);
+      lineColor = styles.getPropertyValue('--ambient-line').trim() || lineColor;
+      pointColor = styles.getPropertyValue('--ambient-particle').trim() || pointColor;
+    };
+
+    const waveHeight = (x, z, time) => (
+      Math.sin(x * 0.78 + time * 0.34) * Math.cos(z * 0.67 - time * 0.25) * 0.62 +
+      Math.sin((x + z) * 0.49 + time * 0.28) * 0.3 +
+      Math.cos(Math.hypot(x, z) * 0.74 - time * 0.22) * 0.2
+    );
+
+    const draw = (timestamp) => {
+      if (!visible) return;
+      if (!reducedMotion.matches && timestamp - lastFrame < 32) {
+        frame = requestAnimationFrame(draw);
+        return;
+      }
+      lastFrame = timestamp;
+      const time = reducedMotion.matches ? 0 : timestamp * 0.00024;
+      context.clearRect(0, 0, width, height);
+
+      const scale = Math.min(width / 21, height / 15, 68);
+      const centerX = width * 0.72;
+      const centerY = height * 0.66;
+      const project = (x, z, elevation = 0) => {
+        const diagonal = Math.SQRT1_2;
+        return [
+          centerX + (x - z) * diagonal * scale,
+          centerY + (x + z) * diagonal * scale * 0.34 - elevation * scale * 0.42
+        ];
+      };
+      const edgeFade = (x, z) => {
+        const distance = Math.hypot(x, z) / radius;
+        return Math.max(0, Math.min(1, (1 - distance) * 3.2));
+      };
+
+      context.lineWidth = Math.max(0.65, scale / 105);
+      context.lineCap = 'round';
+      for (let direction = 0; direction < 2; direction += 1) {
+        for (let row = 0; row <= gridLines; row += 1) {
+          const fixed = (row / gridLines - 0.5) * radius * 2;
+          const halfSpan = Math.sqrt(Math.max(0, radius * radius - fixed * fixed));
+          context.beginPath();
+          let started = false;
+          let rowFade = 0;
+          for (let step = 0; step <= gridSteps; step += 1) {
+            const moving = (step / gridSteps * 2 - 1) * halfSpan;
+            const x = direction === 0 ? moving : fixed;
+            const z = direction === 0 ? fixed : moving;
+            const fade = edgeFade(x, z);
+            const point = project(x, z, waveHeight(x, z, time));
+            if (fade < 0.025) {
+              started = false;
+              continue;
+            }
+            rowFade += fade;
+            if (!started) {
+              context.moveTo(point[0], point[1]);
+              started = true;
+            } else {
+              context.lineTo(point[0], point[1]);
+            }
+          }
+          context.strokeStyle = `rgba(${lineColor}, ${0.035 + (rowFade / (gridSteps + 1)) * 0.075})`;
+          context.stroke();
+        }
+      }
+
+      particles.forEach((particle, index) => {
+        const phase = (particle.phase + (reducedMotion.matches ? 0 : time * 0.12)) % 1;
+        const lift = phase * 1.05;
+        const fade = edgeFade(particle.x, particle.z) * Math.sin(Math.PI * phase);
+        if (fade < 0.025) return;
+        const point = project(particle.x, particle.z, waveHeight(particle.x, particle.z, time) + lift);
+        const size = 0.6 + (index % 3) * 0.2;
+        context.beginPath();
+        context.arc(point[0], point[1], size, 0, Math.PI * 2);
+        context.fillStyle = `rgba(${pointColor}, ${fade * (reducedMotion.matches ? 0.09 : 0.14)})`;
+        context.fill();
+      });
+
+      if (!reducedMotion.matches) frame = requestAnimationFrame(draw);
+    };
+
+    const resize = () => {
+      const bounds = container.getBoundingClientRect();
+      width = bounds.width;
+      height = bounds.height;
+      pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width = Math.max(1, Math.round(width * pixelRatio));
+      canvas.height = Math.max(1, Math.round(height * pixelRatio));
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      lastFrame = 0;
+      if (visible) {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(draw);
+      }
+    };
+    const setVisibility = () => {
+      visible = !document.hidden;
+      if (visible) frame = requestAnimationFrame(draw);
+      else cancelAnimationFrame(frame);
+    };
+    const setMotionPreference = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(draw);
+    };
+    const themeObserver = new MutationObserver(readColors);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    const resizeObserver = new ResizeObserver(resize);
+
+    readColors();
+    resizeObserver.observe(container);
+    document.addEventListener('visibilitychange', setVisibility);
+    reducedMotion.addEventListener('change', setMotionPreference);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      themeObserver.disconnect();
+      document.removeEventListener('visibilitychange', setVisibility);
+      reducedMotion.removeEventListener('change', setMotionPreference);
+    };
+  }, []);
+
+  return <div className="ambient-background" aria-hidden="true"><canvas ref={canvasRef} className="ambient-canvas" /></div>;
 }
 
 function ProductDialog({ product, onClose, onSave, saving, error }) {
@@ -316,6 +476,7 @@ export default function Home() {
       </aside>
 
       <section className="main-content">
+        <AmbientBackground />
         <header className="topbar"><div className="breadcrumb" aria-label={`Localização: Painel, ${selectedView?.label}`}><span className="breadcrumb-root">Painel</span><span aria-hidden="true">/</span><strong>{selectedView?.label}</strong></div><div className="topbar-actions"><div className="theme-switch" role="group" aria-label="Escolha o tema da interface"><button type="button" className="theme-option" aria-label="Tema claro" aria-pressed={theme === 'light'} onClick={() => selectTheme('light')}><Icon name="sun" size={16} /><span>Claro</span></button><button type="button" className="theme-option" aria-label="Tema escuro" aria-pressed={theme === 'dark'} onClick={() => selectTheme('dark')}><Icon name="moon" size={16} /><span>Escuro</span></button></div><div className={`system-status ${apiOnline === false ? 'status-offline' : apiOnline ? 'status-online' : 'status-pending'}`} role="status" aria-live="polite"><i /> <span>{apiOnline === null ? 'Conectando à API' : apiOnline ? 'API disponível' : 'API indisponível'}</span></div></div></header>
         <div className="page-content">
           <div className="page-heading"><div><span className="eyebrow">GESTÃO DE ESTOQUE</span><h1>{title}</h1><p>{subtitle}</p></div>{activeView === 'products' && <button className="button button-primary add-button" onClick={() => openDialog()}><Icon name="plus" size={17} /> Adicionar produto</button>}</div>

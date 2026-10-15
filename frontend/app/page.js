@@ -57,154 +57,217 @@ function AmbientBackground() {
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = canvas?.parentElement;
-    const context = canvas?.getContext('2d', { alpha: true });
-    if (!canvas || !container || !context) return;
+    if (!canvas || !container) return;
 
-    const radius = 7.5;
-    const gridLines = 52;
-    const gridSteps = 64;
-    const particles = Array.from({ length: 620 }, (_, index) => {
-      const angle = index * Math.PI * (3 - Math.sqrt(5));
-      const distance = radius * Math.sqrt((index + 0.5) / 620);
-      return {
-        x: Math.cos(angle) * distance,
-        z: Math.sin(angle) * distance,
-        phase: (index * 0.61803398875) % 1
-      };
-    });
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let width = 0;
-    let height = 0;
-    let pixelRatio = 1;
-    let frame = 0;
+    const lowPower = window.matchMedia('(max-width: 700px)').matches || (navigator.hardwareConcurrency || 8) <= 4;
+    let THREE;
+    let renderer;
+    let scene;
+    let camera;
+    let gridGeometry;
+    let gridMaterial;
+    let grid;
+    let pointsGeometry;
+    let pointsMaterial;
+    let points;
+    let positions;
+    let pointPositions;
+    let gridCoordinates = [];
+    let pointCoordinates = [];
+    let columns = 0;
+    let rows = 0;
+    let width = 1;
+    let height = 1;
     let lastFrame = 0;
     let visible = !document.hidden;
-    let lineColor = '78, 123, 86';
-    let pointColor = '68, 119, 78';
+    const pointer = { x: 0, y: 0, targetX: 0, targetY: 0 };
+    let disposed = false;
+    let resizeObserver;
+    let themeObserver;
 
-    const readColors = () => {
-      const styles = getComputedStyle(document.documentElement);
-      lineColor = styles.getPropertyValue('--ambient-line').trim() || lineColor;
-      pointColor = styles.getPropertyValue('--ambient-particle').trim() || pointColor;
-    };
-
-    const waveHeight = (x, z, time) => (
-      Math.sin(x * 0.78 + time * 0.34) * Math.cos(z * 0.67 - time * 0.25) * 0.82 +
-      Math.sin((x + z) * 0.49 + time * 0.28) * 0.4 +
-      Math.cos(Math.hypot(x, z) * 0.74 - time * 0.22) * 0.28
-    );
-
-    const draw = (timestamp) => {
-      if (!visible) return;
-      if (!reducedMotion.matches && timestamp - lastFrame < 32) {
-        frame = requestAnimationFrame(draw);
-        return;
-      }
-      lastFrame = timestamp;
-      const time = reducedMotion.matches ? 0 : timestamp * 0.00024;
-      context.clearRect(0, 0, width, height);
-
-      const scale = Math.min(width / 19, height / 13, 72);
-      const centerX = width * 0.56;
-      const centerY = height * 0.54;
-      const project = (x, z, elevation = 0) => {
-        const diagonal = Math.SQRT1_2;
-        return [
-          centerX + (x - z) * diagonal * scale,
-          centerY + (x + z) * diagonal * scale * 0.34 - elevation * scale * 0.48
-        ];
+    const makeGrid = () => {
+      if (!renderer || !scene) return;
+      const spacing = lowPower ? 68 : 42;
+      columns = Math.max(8, Math.ceil(width / spacing) + 1);
+      rows = Math.max(8, Math.ceil(height / spacing) + 1);
+      const stepX = width / (columns - 1);
+      const stepY = height / (rows - 1);
+      const vertices = (rows * (columns - 1) + columns * (rows - 1)) * 2;
+      positions = new Float32Array(vertices * 3);
+      gridCoordinates = new Array(vertices);
+      let offset = 0;
+      const addVertex = (x, y) => {
+        positions[offset * 3] = x;
+        positions[offset * 3 + 1] = y;
+        gridCoordinates[offset] = [x / Math.max(width, 1), y / Math.max(height, 1)];
+        offset += 1;
       };
-      const edgeFade = (x, z) => {
-        const distance = Math.hypot(x, z) / radius;
-        return Math.max(0, Math.min(1, (1 - distance) * 3.2));
-      };
-
-      context.lineWidth = Math.max(0.65, scale / 105);
-      context.lineCap = 'round';
-      for (let direction = 0; direction < 2; direction += 1) {
-        for (let row = 0; row <= gridLines; row += 1) {
-          const fixed = (row / gridLines - 0.5) * radius * 2;
-          const halfSpan = Math.sqrt(Math.max(0, radius * radius - fixed * fixed));
-          context.beginPath();
-          let started = false;
-          let rowFade = 0;
-          for (let step = 0; step <= gridSteps; step += 1) {
-            const moving = (step / gridSteps * 2 - 1) * halfSpan;
-            const x = direction === 0 ? moving : fixed;
-            const z = direction === 0 ? fixed : moving;
-            const fade = edgeFade(x, z);
-            const point = project(x, z, waveHeight(x, z, time));
-            if (fade < 0.025) {
-              started = false;
-              continue;
-            }
-            rowFade += fade;
-            if (!started) {
-              context.moveTo(point[0], point[1]);
-              started = true;
-            } else {
-              context.lineTo(point[0], point[1]);
-            }
-          }
-          context.strokeStyle = `rgba(${lineColor}, ${0.09 + (rowFade / (gridSteps + 1)) * 0.14})`;
-          context.stroke();
+      for (let row = 0; row < rows; row += 1) {
+        const y = height / 2 - row * stepY;
+        for (let column = 0; column < columns - 1; column += 1) {
+          const x = -width / 2 + column * stepX;
+          addVertex(x, y);
+          addVertex(x + stepX, y);
         }
       }
+      for (let column = 0; column < columns; column += 1) {
+        const x = -width / 2 + column * stepX;
+        for (let row = 0; row < rows - 1; row += 1) {
+          const y = height / 2 - row * stepY;
+          addVertex(x, y);
+          addVertex(x, y - stepY);
+        }
+      }
+      gridGeometry?.dispose();
+      gridGeometry = new THREE.BufferGeometry();
+      gridGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      gridMaterial ||= new THREE.LineBasicMaterial({ transparent: true, opacity: lowPower ? 0.34 : 0.39, depthWrite: false });
+      if (grid) scene.remove(grid);
+      grid = new THREE.LineSegments(gridGeometry, gridMaterial);
+      grid.position.set(0, 0, 0);
+      scene.add(grid);
 
-      particles.forEach((particle, index) => {
-        const phase = (particle.phase + (reducedMotion.matches ? 0 : time * 0.12)) % 1;
-        const lift = phase * 1.05;
-        const fade = edgeFade(particle.x, particle.z) * Math.sin(Math.PI * phase);
-        if (fade < 0.025) return;
-        const point = project(particle.x, particle.z, waveHeight(particle.x, particle.z, time) + lift);
-        const size = 0.6 + (index % 3) * 0.2;
-        context.beginPath();
-        context.arc(point[0], point[1], size, 0, Math.PI * 2);
-        context.fillStyle = `rgba(${pointColor}, ${fade * (reducedMotion.matches ? 0.17 : 0.24)})`;
-        context.fill();
-      });
+      const pointStep = lowPower ? 6 : 5;
+      pointCoordinates = [];
+      for (let row = 1; row < rows - 1; row += pointStep) {
+        for (let column = 1; column < columns - 1; column += pointStep) {
+          pointCoordinates.push([-width / 2 + column * stepX, height / 2 - row * stepY]);
+        }
+      }
+      const pointBuffer = new Float32Array(pointCoordinates.length * 3);
+      pointsGeometry?.dispose();
+      pointsGeometry = new THREE.BufferGeometry();
+      pointsGeometry.setAttribute('position', new THREE.BufferAttribute(pointBuffer, 3));
+      pointPositions = pointsGeometry.attributes.position.array;
+      pointsMaterial ||= new THREE.PointsMaterial({ transparent: true, opacity: 0.65, size: lowPower ? 1.8 : 2.2, sizeAttenuation: false, depthWrite: false });
+      if (points) scene.remove(points);
+      points = new THREE.Points(pointsGeometry, pointsMaterial);
+      scene.add(points);
+    };
 
-      if (!reducedMotion.matches) frame = requestAnimationFrame(draw);
+    const updateTheme = () => {
+      if (!THREE || !gridMaterial || !pointsMaterial) return;
+      const values = getComputedStyle(document.documentElement).getPropertyValue('--ambient-line').trim().split(',').map(Number);
+      const pointValues = getComputedStyle(document.documentElement).getPropertyValue('--ambient-particle').trim().split(',').map(Number);
+      const toColor = (channels) => new THREE.Color().setRGB(channels[0] / 255, channels[1] / 255, channels[2] / 255, THREE.SRGBColorSpace);
+      gridMaterial.color.copy(toColor(values));
+      pointsMaterial.color.copy(toColor(pointValues));
+      const dark = document.documentElement.dataset.theme === 'dark';
+      gridMaterial.opacity = dark ? 0.46 : 0.38;
+      pointsMaterial.opacity = dark ? 0.72 : 0.58;
+      renderer.render(scene, camera);
+    };
+
+    const waveAt = (x, y, time) => {
+      const nx = x / Math.max(width, 1);
+      const ny = y / Math.max(height, 1);
+      const influence = reducedMotion.matches ? 0 : 0.34;
+      const px = pointer.x * influence;
+      const py = pointer.y * influence;
+      return Math.sin((nx * 8 + px) + time * 0.72) * Math.cos((ny * 8 + py) - time * 0.52) * 9
+        + Math.sin((nx + ny) * 9 + time * 0.42) * 5
+        + Math.cos(Math.hypot(nx - 0.5, ny - 0.5) * 15 - time * 0.36) * 3;
+    };
+
+    const render = (timestamp = 0) => {
+      if (disposed || !renderer || !visible) return;
+      if (!reducedMotion.matches && timestamp - lastFrame < 32) return;
+      lastFrame = timestamp;
+      const time = reducedMotion.matches ? 0 : timestamp * 0.00045;
+      pointer.x += (pointer.targetX - pointer.x) * 0.035;
+      pointer.y += (pointer.targetY - pointer.y) * 0.035;
+      for (let index = 0; index < gridCoordinates.length; index += 1) {
+        positions[index * 3 + 2] = waveAt(gridCoordinates[index][0] * width, gridCoordinates[index][1] * height, time);
+      }
+      gridGeometry.attributes.position.needsUpdate = true;
+      for (let index = 0; index < pointCoordinates.length; index += 1) {
+        pointPositions[index * 3] = pointCoordinates[index][0];
+        pointPositions[index * 3 + 1] = pointCoordinates[index][1];
+        pointPositions[index * 3 + 2] = waveAt(pointCoordinates[index][0], pointCoordinates[index][1], time) + 1;
+      }
+      pointsGeometry.attributes.position.needsUpdate = true;
+      camera.position.x += (pointer.x * (lowPower ? 2 : 7) - camera.position.x) * 0.025;
+      const cameraTilt = -height * (lowPower ? 0.2 : 0.28) + pointer.y * (lowPower ? 2 : 7);
+      camera.position.y += (cameraTilt - camera.position.y) * 0.025;
+      camera.lookAt(0, 0, 0);
+      renderer.render(scene, camera);
+    };
+
+    const start = async () => {
+      try {
+        THREE = await import('three');
+        if (disposed) return;
+        renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !lowPower, powerPreference: 'low-power', depth: false, stencil: false });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPower ? 1 : 1.5));
+        renderer.setClearColor(0x000000, 0);
+        scene = new THREE.Scene();
+        camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 2000);
+        camera.position.z = 1000;
+        gridMaterial = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.38, depthWrite: false });
+        pointsMaterial = new THREE.PointsMaterial({ transparent: true, opacity: 0.58, size: lowPower ? 1.8 : 2.2, sizeAttenuation: false, depthWrite: false });
+        resize();
+        updateTheme();
+        renderer.setAnimationLoop((timestamp) => render(timestamp));
+        if (reducedMotion.matches) renderer.setAnimationLoop(null);
+      } catch (error) {
+        console.warn('Não foi possível iniciar a animação 3D de fundo.', error);
+      }
     };
 
     const resize = () => {
       const bounds = container.getBoundingClientRect();
-      width = bounds.width;
-      height = bounds.height;
-      pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
-      canvas.width = Math.max(1, Math.round(width * pixelRatio));
-      canvas.height = Math.max(1, Math.round(height * pixelRatio));
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      width = Math.max(1, bounds.width);
+      height = Math.max(1, bounds.height);
+      if (!renderer) return;
+      renderer.setSize(width, height, false);
+      camera.left = -width / 2;
+      camera.right = width / 2;
+      camera.top = height / 2;
+      camera.bottom = -height / 2;
+      camera.updateProjectionMatrix();
+      makeGrid();
       lastFrame = 0;
-      if (visible) {
-        cancelAnimationFrame(frame);
-        frame = requestAnimationFrame(draw);
-      }
+      render();
     };
     const setVisibility = () => {
       visible = !document.hidden;
-      if (visible) frame = requestAnimationFrame(draw);
-      else cancelAnimationFrame(frame);
+      if (renderer) renderer.setAnimationLoop(visible && !reducedMotion.matches ? (timestamp) => render(timestamp) : null);
+      if (visible) render();
     };
     const setMotionPreference = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(draw);
+      if (renderer) renderer.setAnimationLoop(!reducedMotion.matches && visible ? (timestamp) => render(timestamp) : null);
+      render();
     };
-    const themeObserver = new MutationObserver(readColors);
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    const resizeObserver = new ResizeObserver(resize);
+    const movePointer = (event) => {
+      if (reducedMotion.matches || !renderer) return;
+      const bounds = container.getBoundingClientRect();
+      pointer.targetX = Math.max(-1, Math.min(1, ((event.clientX - bounds.left) / bounds.width - 0.5) * 2));
+      pointer.targetY = Math.max(-1, Math.min(1, -((event.clientY - bounds.top) / bounds.height - 0.5) * 2));
+    };
 
-    readColors();
+    themeObserver = new MutationObserver(updateTheme);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(container);
     document.addEventListener('visibilitychange', setVisibility);
+    window.addEventListener('pointermove', movePointer, { passive: true });
     reducedMotion.addEventListener('change', setMotionPreference);
+    start();
 
     return () => {
-      cancelAnimationFrame(frame);
+      disposed = true;
+      renderer?.setAnimationLoop(null);
       resizeObserver.disconnect();
       themeObserver.disconnect();
       document.removeEventListener('visibilitychange', setVisibility);
+      window.removeEventListener('pointermove', movePointer);
       reducedMotion.removeEventListener('change', setMotionPreference);
+      gridGeometry?.dispose();
+      pointsGeometry?.dispose();
+      gridMaterial?.dispose();
+      pointsMaterial?.dispose();
+      renderer?.dispose();
     };
   }, []);
 

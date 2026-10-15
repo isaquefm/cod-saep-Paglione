@@ -3,8 +3,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined
+    connectionString: process.env.DATABASE_URL
 });
 
 function postgresQuery(client, sql, params, callback) {

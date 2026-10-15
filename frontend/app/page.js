@@ -38,7 +38,7 @@ function Icon({ name, size = 19 }) {
 }
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(`/api/backend/${path}`, {
+  const response = await fetch(`/api/stock?path=${encodeURIComponent(path)}`, {
     cache: 'no-store',
     ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }

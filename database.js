@@ -2,9 +2,37 @@ const { Pool } = require('pg');
 const dotenv = require('dotenv');
 dotenv.config();
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL
-});
+if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL não foi definida no ambiente. Configure a conexão PostgreSQL antes de iniciar a API.');
+}
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+pool.on('connect', () => console.log('Conexão com o PostgreSQL estabelecida'));
+pool.on('error', (error) => console.error('Erro na conexão com o PostgreSQL:', error.message));
+
+async function initialize() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS produtos (
+            id SERIAL PRIMARY KEY,
+            nome VARCHAR(120) NOT NULL,
+            quantidade NUMERIC(14, 3) NOT NULL DEFAULT 0 CHECK (quantidade >= 0),
+            valor NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (valor >= 0),
+            categoria VARCHAR(80) NOT NULL
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS movimentacoes (
+            id SERIAL PRIMARY KEY,
+            tempo TIMESTAMP NOT NULL,
+            tipo VARCHAR(10) NOT NULL CHECK (tipo IN ('entrada', 'saida')),
+            quantidade NUMERIC(14, 3) NOT NULL CHECK (quantidade > 0),
+            id_produto INTEGER NOT NULL REFERENCES produtos(id)
+        )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS movimentacoes_tempo_idx ON movimentacoes (tempo)');
+    await pool.query('CREATE INDEX IF NOT EXISTS movimentacoes_produto_idx ON movimentacoes (id_produto)');
+}
 
 function postgresQuery(client, sql, params, callback) {
     let index = 0;
@@ -30,6 +58,7 @@ function postgresQuery(client, sql, params, callback) {
 }
 
 module.exports = {
+    initialize,
     query(sql, params, callback) {
         if (typeof params === 'function') {
             callback = params;
@@ -54,8 +83,5 @@ module.exports = {
                 release() { client.release(); }
             });
         });
-    },
-    on(event, handler) {
-        pool.on(event === 'connection' ? 'connect' : event, handler);
     }
 };

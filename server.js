@@ -1,8 +1,20 @@
-const app = require('./app');
 const dotenv = require('dotenv');
 dotenv.config();
-const port = process.env.PORT;
 
-app.listen(port, () => {
-    console.log(`Servidor rodando em http://localhost:${port}`);
-});
+const app = require('./app');
+const database = require('./database');
+const port = Number(process.env.PORT || 3001);
+
+async function start() {
+    try {
+        await database.initialize();
+        app.listen(port, '0.0.0.0', () => {
+            console.log(`API pronta em http://localhost:${port}`);
+        });
+    } catch (error) {
+        console.error('Não foi possível iniciar a API ou preparar o banco:', error.message);
+        process.exit(1);
+    }
+}
+
+start();

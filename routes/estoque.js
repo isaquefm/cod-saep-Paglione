@@ -1,6 +1,6 @@
 ﻿const express = require('express');
 const router = express.Router();
-const mysql = require('../mysql.js');
+const mysql = require('../database.js');
 
 function validarProduto(req, res) {
     const { nome, quantidade, valor, categoria } = req.body || {};

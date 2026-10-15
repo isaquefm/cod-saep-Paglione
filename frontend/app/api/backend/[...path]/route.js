@@ -1,4 +1,4 @@
-const backendUrl = (process.env.BACKEND_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+const backendUrl = (process.env.BACKEND_API_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 async function proxyRequest(request, context) {
   try {

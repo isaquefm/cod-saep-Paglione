@@ -1,21 +1,22 @@
-# Painel de estoque
+# Painel e API de estoque
 
-Interface Next.js para acompanhar produtos, registrar movimentações e consultar os relatórios disponibilizados pela API Express.
+O painel e a API de estoque rodam no mesmo projeto Next.js. A API acessa o PostgreSQL diretamente, sem precisar de uma segunda hospedagem ou de uma URL `BACKEND_API_URL`.
 
 ## Executar localmente
 
-1. Configure a conexão com o banco no `.env` da raiz e inicie a API com `npm run dev`. A API usa a porta definida em `PORT` (neste ambiente, `3000`).
-2. Em `frontend`, copie `.env.example` para `.env.local` se a API estiver em outra URL.
-3. Em `frontend`, execute `npm install` e `npm run dev`.
-4. Acesse [http://localhost:3001](http://localhost:3001).
+1. Na raiz, copie `.env.example` para `.env` e informe `DATABASE_URL` do Neon.
+2. Instale as dependências com `npm install` e `npm install --prefix frontend`.
+3. Inicie com `npm run dev` na raiz.
+4. Abra [http://localhost:3000](http://localhost:3000).
 
-O Next.js encaminha as chamadas para o Express no servidor, evitando configuração de CORS no navegador. A URL padrão da API é `http://localhost:3000`.
+Na primeira chamada à API, o sistema cria `produtos` e `movimentacoes` caso não existam. O banco deve aceitar conexões da máquina e da Vercel.
 
-## Recursos utilizados
+## Publicar na Vercel
 
-- Produtos: `GET /loja/listar`, `POST /loja/cadastro`, `PUT /loja/atualizar/:id` e `DELETE /loja/excluir/:id`.
-- Movimentações: `POST /loja/registro`.
-- Resumo por categoria: `GET /loja/categoria`.
-- Relatórios: `POST /loja/porcentagem`, `POST /loja/relatorio-periodo` e `POST /loja/maiores-saidas`.
+Configure `frontend` como Root Directory. Adicione `DATABASE_URL` às variáveis de ambiente do projeto Vercel e faça um novo deploy. O `.env` local não é enviado à Vercel; use a mesma URL como variável privada no painel da Vercel.
 
-A edição/exclusão usa o `id` da tabela `produtos`; produtos com movimentações referenciadas não podem ser excluídos.
+Não publique credenciais no repositório. O arquivo `.env` já está ignorado pelo Git.
+
+## API
+
+As rotas usadas pelo painel ficam sob `/api/stock`: produtos, movimentações, totais por categoria e relatórios. As gravações de movimentação são transacionais e impedem saídas maiores que o estoque disponível.

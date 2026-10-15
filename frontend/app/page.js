@@ -32,7 +32,9 @@ function Icon({ name, size = 19 }) {
     edit: <><path d="m15 5 4 4M4 20l4-.8L19 8a2.8 2.8 0 0 0-4-4L4 15v5Z" /></>,
     trash: <><path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3" /></>,
     refresh: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.5 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.5-3" /></>,
-    arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>
+    arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
+    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></>,
+    moon: <path d="M20.2 15.4A8.5 8.5 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z" />
   };
   return <svg {...attrs}>{paths[name] || paths.grid}</svg>;
 }
@@ -136,6 +138,7 @@ function Overview({ products, categories, onNavigate, onEdit, onDelete, category
 
 export default function Home() {
   const [activeView, setActiveView] = useState('overview');
+  const [theme, setTheme] = useState('light');
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -158,6 +161,22 @@ export default function Home() {
   const [reports, setReports] = useState(null);
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState('');
+
+  useEffect(() => {
+    const savedTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    setTheme(savedTheme);
+  }, []);
+
+  function toggleTheme() {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = nextTheme;
+    setTheme(nextTheme);
+    try {
+      window.localStorage.setItem('estoque-theme', nextTheme);
+    } catch {
+      // A preferência continua ativa nesta sessão mesmo se o armazenamento estiver indisponível.
+    }
+  }
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -298,7 +317,7 @@ export default function Home() {
       </aside>
 
       <section className="main-content">
-        <header className="topbar"><div className="breadcrumb" aria-label={`Localização: Painel, ${selectedView?.label}`}><span className="breadcrumb-root">Painel</span><span aria-hidden="true">/</span><strong>{selectedView?.label}</strong></div><div className={`system-status ${apiOnline === false ? 'status-offline' : apiOnline ? 'status-online' : 'status-pending'}`} role="status" aria-live="polite"><i /> {apiOnline === null ? 'Conectando à API' : apiOnline ? 'API disponível' : 'API indisponível'}</div></header>
+        <header className="topbar"><div className="breadcrumb" aria-label={`Localização: Painel, ${selectedView?.label}`}><span className="breadcrumb-root">Painel</span><span aria-hidden="true">/</span><strong>{selectedView?.label}</strong></div><div className="topbar-actions"><button type="button" className="theme-toggle" onClick={toggleTheme} aria-pressed={theme === 'dark'} aria-label={`Tema ${theme === 'dark' ? 'escuro' : 'claro'} ativo. Alternar para tema ${theme === 'dark' ? 'claro' : 'escuro'}`}><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={17} /><span>Tema {theme === 'dark' ? 'escuro' : 'claro'}</span></button><div className={`system-status ${apiOnline === false ? 'status-offline' : apiOnline ? 'status-online' : 'status-pending'}`} role="status" aria-live="polite"><i /> <span>{apiOnline === null ? 'Conectando à API' : apiOnline ? 'API disponível' : 'API indisponível'}</span></div></div></header>
         <div className="page-content">
           <div className="page-heading"><div><span className="eyebrow">GESTÃO DE ESTOQUE</span><h1>{title}</h1><p>{subtitle}</p></div>{activeView === 'products' && <button className="button button-primary add-button" onClick={() => openDialog()}><Icon name="plus" size={17} /> Adicionar produto</button>}</div>
           {error && <div className="notice notice-error" role="alert"><span>{error}</span><button className="button button-quiet retry-button" onClick={loadProducts}>Tentar novamente</button></div>}
